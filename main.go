@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-type Item interface {
-	NonPolygonItem | PolygonEntry
-}
-
 type NonPolygonItem struct {
 	Title           string `xml:"title"`
 	Url             string `xml:"link"`
