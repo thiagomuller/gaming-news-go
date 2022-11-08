@@ -79,72 +79,64 @@ func contains(allNews []GeneralNews, value string) bool {
 	return false
 }
 
+func mountGeneralNews(title string, url string, description string) GeneralNews {
+	return GeneralNews{
+		Title:       title,
+		Url:         url,
+		Description: description,
+	}
+}
+
 func fillResultingNews[T any](feedNews []T, allNews []GeneralNews) []GeneralNews {
 	switch n := any(feedNews).(type) {
 	case []NonPolygonItem:
-		for i := 0; i < len(n); i++ {
-			if !contains(allNews, n[i].Title) {
-				allNews = append(allNews, GeneralNews{
-					Title:       n[i].Title,
-					Url:         n[i].Url,
-					Description: n[i].Description,
-				})
+		for _, news := range n {
+			if !contains(allNews, news.Title) {
+				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Description))
 			}
 		}
 	case []PolygonEntry:
-		for i := 0; i < len(n); i++ {
-			if !contains(allNews, n[i].Title) {
-				allNews = append(allNews, GeneralNews{
-					Title:       n[i].Title,
-					Url:         n[i].Url,
-					Description: n[i].Content,
-				})
+		for _, news := range n {
+			if !contains(allNews, news.Title) {
+				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Content))
 			}
 		}
 	}
 	return allNews
 }
 
+func makeHttpGetRequest(rssFeed string) []byte {
+	response, err := http.Get(rssFeed)
+	if err != nil {
+		fmt.Printf("%s", err.Error())
+	}
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		fmt.Printf("%s", err.Error())
+	}
+	return responseBody
+}
+
 func main() {
 	start := time.Now()
 	var allNews []GeneralNews
-	gamespotResp, err := http.Get("https://www.gamespot.com/feeds/game-news")
-	if err != nil {
-		fmt.Printf("%s", err.Error())
-	}
-	gamespotBody, err := io.ReadAll(gamespotResp.Body)
-	if err != nil {
-		fmt.Printf("%s", err.Error())
-	}
+
+	gamespotRespBody := makeHttpGetRequest("https://www.gamespot.com/feeds/game-news")
 	var gamespotRss GamespotRss
-	xml.Unmarshal(gamespotBody, &gamespotRss)
+	xml.Unmarshal(gamespotRespBody, &gamespotRss)
 	gamespotNews := gamespotRss.Channel.Items
 	allNews = fillResultingNews(gamespotNews, allNews)
-	ignResp, err := http.Get("http://feeds.feedburner.com/ign/all")
-	if err != nil {
-		fmt.Printf("%s", err.Error())
-	}
-	ignBody, err := io.ReadAll(ignResp.Body)
-	if err != nil {
-		fmt.Printf("%s", err.Error())
-	}
+
+	ignRespBody := makeHttpGetRequest("http://feeds.feedburner.com/ign/all")
 	var ignRss IGNRss
-	xml.Unmarshal(ignBody, &ignRss)
+	xml.Unmarshal(ignRespBody, &ignRss)
 	ignNews := ignRss.Channel.Items
 	allNews = fillResultingNews(ignNews, allNews)
 
-	polygonResp, err := http.Get("https://www.polygon.com/rss/index.xml")
-	if err != nil {
-		fmt.Printf("%s", err.Error())
-	}
-	polygonBody, err := io.ReadAll(polygonResp.Body)
-	if err != nil {
-		fmt.Printf("%s", err.Error())
-	}
+	polygonRespBody := makeHttpGetRequest("https://www.polygon.com/rss/index.xml")
 	var polygonFeed PolygonFeed
-	xml.Unmarshal(polygonBody, &polygonFeed)
+	xml.Unmarshal(polygonRespBody, &polygonFeed)
 	polygonNews := polygonFeed.Entries
-
 	allNews = fillResultingNews(polygonNews, allNews)
 
 	for i := 0; i < len(allNews); i++ {
