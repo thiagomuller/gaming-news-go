@@ -8,39 +8,42 @@ import (
 	"time"
 )
 
-type GameSpotItem struct {
+type Item interface {
+	NonPolygonItem | PolygonEntry
+}
+
+type NonPolygonItem struct {
 	Title           string `xml:"title"`
 	Url             string `xml:"link"`
 	Description     string `xml:"description"`
 	PublicationDate string `xml:"pubDate"`
-	Creator         string `xml:"creator"`
-	RelatedGames    string `xml:"relatedGames"`
+}
+
+type Channel struct {
+	Title       string `xml:"title"`
+	Url         string `xml:"link"`
+	Description string `xml:"description"`
+}
+
+type GameSpotItem struct {
+	NonPolygonItem
+	Creator      string `xml:"creator"`
+	RelatedGames string `xml:"relatedGames"`
 }
 
 type GamespotChannel struct {
-	Title         string         `xml:"title"`
-	Url           string         `xml:"link"`
-	Description   string         `xml:"description"`
-	LastBuildDate string         `xml:"lastBuildDate"`
+	Channel
 	Items         []GameSpotItem `xml:"item"`
+	LastBuildDate string         `xml:"lastBuildDate"`
 }
 
 type GamespotRss struct {
 	Channel GamespotChannel `xml:"channel"`
 }
 
-type IGNItem struct {
-	Title           string `xml:"title"`
-	Url             string `xml:"link"`
-	Description     string `xml:"description"`
-	PublicationDate string `xml:"pubDate"`
-}
-
 type IGNChannel struct {
-	Title       string    `xml:"title"`
-	Url         string    `xml:"link"`
-	Description string    `xml:"description"`
-	Items       []IGNItem `xml:"item"`
+	Channel
+	Items []NonPolygonItem `xml:"item"`
 }
 
 type IGNRss struct {
@@ -76,6 +79,32 @@ func contains(allNews []GeneralNews, value string) bool {
 	return false
 }
 
+func fillResultingNews[T any](feedNews []T, allNews []GeneralNews) []GeneralNews {
+	switch n := any(feedNews).(type) {
+	case []NonPolygonItem:
+		for i := 0; i < len(n); i++ {
+			if !contains(allNews, n[i].Title) {
+				allNews = append(allNews, GeneralNews{
+					Title:       n[i].Title,
+					Url:         n[i].Url,
+					Description: n[i].Description,
+				})
+			}
+		}
+	case []PolygonEntry:
+		for i := 0; i < len(n); i++ {
+			if !contains(allNews, n[i].Title) {
+				allNews = append(allNews, GeneralNews{
+					Title:       n[i].Title,
+					Url:         n[i].Url,
+					Description: n[i].Content,
+				})
+			}
+		}
+	}
+	return allNews
+}
+
 func main() {
 	start := time.Now()
 	var allNews []GeneralNews
@@ -90,15 +119,7 @@ func main() {
 	var gamespotRss GamespotRss
 	xml.Unmarshal(gamespotBody, &gamespotRss)
 	gamespotNews := gamespotRss.Channel.Items
-	for i := 0; i < len(gamespotNews); i++ {
-		if !contains(allNews, gamespotNews[i].Title) {
-			allNews = append(allNews, GeneralNews{
-				Title:       gamespotNews[i].Title,
-				Url:         gamespotNews[i].Url,
-				Description: gamespotNews[i].Description,
-			})
-		}
-	}
+	allNews = fillResultingNews(gamespotNews, allNews)
 	ignResp, err := http.Get("http://feeds.feedburner.com/ign/all")
 	if err != nil {
 		fmt.Printf("%s", err.Error())
@@ -110,24 +131,7 @@ func main() {
 	var ignRss IGNRss
 	xml.Unmarshal(ignBody, &ignRss)
 	ignNews := ignRss.Channel.Items
-	for i := 0; i < len(ignNews); i++ {
-		if !contains(allNews, ignNews[i].Title) {
-			allNews = append(allNews, GeneralNews{
-				Title:       ignNews[i].Title,
-				Url:         ignNews[i].Url,
-				Description: ignNews[i].Description,
-			})
-		}
-	}
-	for i := 0; i < len(ignNews); i++ {
-		if !contains(allNews, ignNews[i].Title) {
-			allNews = append(allNews, GeneralNews{
-				Title:       ignNews[i].Title,
-				Url:         ignNews[i].Url,
-				Description: ignNews[i].Description,
-			})
-		}
-	}
+	allNews = fillResultingNews(ignNews, allNews)
 
 	polygonResp, err := http.Get("https://www.polygon.com/rss/index.xml")
 	if err != nil {
@@ -141,15 +145,7 @@ func main() {
 	xml.Unmarshal(polygonBody, &polygonFeed)
 	polygonNews := polygonFeed.Entries
 
-	for i := 0; i < len(polygonNews); i++ {
-		if !contains(allNews, polygonNews[i].Title) {
-			allNews = append(allNews, GeneralNews{
-				Title:       polygonNews[i].Title,
-				Url:         polygonNews[i].Url,
-				Description: polygonNews[i].Content,
-			})
-		}
-	}
+	allNews = fillResultingNews(polygonNews, allNews)
 
 	for i := 0; i < len(allNews); i++ {
 		fmt.Println(allNews[i].Title)
