@@ -8,42 +8,28 @@ import (
 	"time"
 )
 
-type NonPolygonItem struct {
+type Item struct {
 	Title           string `xml:"title"`
 	Url             string `xml:"link"`
 	Description     string `xml:"description"`
 	PublicationDate string `xml:"pubDate"`
+	Creator         string `xml:"creator"`
+	RelatedGames    string `xml:"relatedGames"`
+	Content         string `xml:"content"`
+	Published       string `xml:"published"`
+	Updated         string `xml:"updated"`
 }
 
 type Channel struct {
-	Title       string `xml:"title"`
-	Url         string `xml:"link"`
-	Description string `xml:"description"`
+	Title         string `xml:"title"`
+	Url           string `xml:"link"`
+	Description   string `xml:"description"`
+	LastBuildDate string `xml:"lastBuildDate"`
+	Items         []Item `xml:"item"`
 }
 
-type GameSpotItem struct {
-	NonPolygonItem
-	Creator      string `xml:"creator"`
-	RelatedGames string `xml:"relatedGames"`
-}
-
-type GamespotChannel struct {
-	Channel
-	Items         []GameSpotItem `xml:"item"`
-	LastBuildDate string         `xml:"lastBuildDate"`
-}
-
-type GamespotRss struct {
-	Channel GamespotChannel `xml:"channel"`
-}
-
-type IGNChannel struct {
-	Channel
-	Items []NonPolygonItem `xml:"item"`
-}
-
-type IGNRss struct {
-	Channel IGNChannel `xml:"channel"`
+type Rss struct {
+	Channel Channel `xml:"channel"`
 }
 
 type PolygonEntry struct {
@@ -85,25 +71,20 @@ func mountGeneralNews(title string, url string, description string) GeneralNews 
 
 func fillResultingNews[T any](feedNews []T, allNews []GeneralNews) []GeneralNews {
 	switch n := any(feedNews).(type) {
-	case []NonPolygonItem:
-		for _, news := range n {
-			if !contains(allNews, news.Title) {
-				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Description))
-			}
-		}
-	case []GameSpotItem:
-		for _, news := range n {
-			if !contains(allNews, news.Title) {
-				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Description))
-			}
-		}
 	case []PolygonEntry:
 		for _, news := range n {
 			if !contains(allNews, news.Title) {
 				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Content))
 			}
 		}
+	case []Item:
+		for _, news := range n {
+			if !contains(allNews, news.Title) {
+				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Description))
+			}
+		}
 	}
+
 	return allNews
 }
 
@@ -124,15 +105,14 @@ func main() {
 	var allNews []GeneralNews
 
 	gamespotRespBody := makeHttpGetRequest("https://www.gamespot.com/feeds/game-news")
-	var gamespotRss GamespotRss
-	xml.Unmarshal(gamespotRespBody, &gamespotRss)
-	gamespotNews := gamespotRss.Channel.Items
+	var rss Rss
+	xml.Unmarshal(gamespotRespBody, &rss)
+	gamespotNews := rss.Channel.Items
 	allNews = fillResultingNews(gamespotNews, allNews)
 
 	ignRespBody := makeHttpGetRequest("http://feeds.feedburner.com/ign/all")
-	var ignRss IGNRss
-	xml.Unmarshal(ignRespBody, &ignRss)
-	ignNews := ignRss.Channel.Items
+	xml.Unmarshal(ignRespBody, &rss)
+	ignNews := rss.Channel.Items
 	allNews = fillResultingNews(ignNews, allNews)
 
 	polygonRespBody := makeHttpGetRequest("https://www.polygon.com/rss/index.xml")
