@@ -91,6 +91,12 @@ func fillResultingNews[T any](feedNews []T, allNews []GeneralNews) []GeneralNews
 				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Description))
 			}
 		}
+	case []GameSpotItem:
+		for _, news := range n {
+			if !contains(allNews, news.Title) {
+				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Description))
+			}
+		}
 	case []PolygonEntry:
 		for _, news := range n {
 			if !contains(allNews, news.Title) {
@@ -140,5 +146,6 @@ func main() {
 	}
 
 	elapsed := time.Since(start)
+	fmt.Println("News quantity: ", len(allNews))
 	fmt.Printf("Took %s\n", elapsed)
 }
