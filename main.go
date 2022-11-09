@@ -30,20 +30,9 @@ type Channel struct {
 
 type Rss struct {
 	Channel Channel `xml:"channel"`
-}
-
-type PolygonEntry struct {
-	Published string `xml:"published"`
-	Updated   string `xml:"updated"`
-	Title     string `xml:"title"`
-	Content   string `xml:"content"`
-	Url       string `xml:"link"`
-}
-
-type PolygonFeed struct {
-	Title   string         `xml:"title"`
-	Updated string         `xml:"updated"`
-	Entries []PolygonEntry `xml:"entry"`
+	Title   string  `xml:"title"`
+	Updated string  `xml:"updated"`
+	Entries []Item  `xml:"entry"`
 }
 
 type GeneralNews struct {
@@ -69,22 +58,22 @@ func mountGeneralNews(title string, url string, description string) GeneralNews 
 	}
 }
 
-func fillResultingNews[T any](feedNews []T, allNews []GeneralNews) []GeneralNews {
-	switch n := any(feedNews).(type) {
-	case []PolygonEntry:
-		for _, news := range n {
-			if !contains(allNews, news.Title) {
-				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Content))
-			}
-		}
-	case []Item:
-		for _, news := range n {
+func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
+	items := rssFeed.Channel.Items
+	entries := rssFeed.Entries
+	if len(items) > 0 && len(entries) == 0 {
+		for _, news := range items {
 			if !contains(allNews, news.Title) {
 				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Description))
 			}
 		}
+	} else {
+		for _, news := range entries {
+			if !contains(allNews, news.Title) {
+				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Content))
+			}
+		}
 	}
-
 	return allNews
 }
 
@@ -107,19 +96,15 @@ func main() {
 	gamespotRespBody := makeHttpGetRequest("https://www.gamespot.com/feeds/game-news")
 	var rss Rss
 	xml.Unmarshal(gamespotRespBody, &rss)
-	gamespotNews := rss.Channel.Items
-	allNews = fillResultingNews(gamespotNews, allNews)
+	allNews = fillResultingNews(rss, allNews)
 
 	ignRespBody := makeHttpGetRequest("http://feeds.feedburner.com/ign/all")
 	xml.Unmarshal(ignRespBody, &rss)
-	ignNews := rss.Channel.Items
-	allNews = fillResultingNews(ignNews, allNews)
+	allNews = fillResultingNews(rss, allNews)
 
 	polygonRespBody := makeHttpGetRequest("https://www.polygon.com/rss/index.xml")
-	var polygonFeed PolygonFeed
-	xml.Unmarshal(polygonRespBody, &polygonFeed)
-	polygonNews := polygonFeed.Entries
-	allNews = fillResultingNews(polygonNews, allNews)
+	xml.Unmarshal(polygonRespBody, &rss)
+	allNews = fillResultingNews(rss, allNews)
 
 	for i := 0; i < len(allNews); i++ {
 		fmt.Println(allNews[i].Title)
