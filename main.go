@@ -85,6 +85,20 @@ func setImgSrc(tagName []byte, hasAttr bool, tokenizer *html.Tokenizer, content 
 	}
 }
 
+func setContinueReading(tokenizer *html.Tokenizer, content *Content, previousTokenValue *string) {
+	for {
+		attrKey, attrValue, moreAttr := tokenizer.TagAttr()
+		if string(attrKey) == "href" && attrValue != nil {
+			content.continueReadingUrl = string(attrValue)
+			*previousTokenValue = ""
+			break
+		}
+		if !moreAttr {
+			break
+		}
+	}
+}
+
 func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 	items := rssFeed.Channel.Items
 	entries := rssFeed.Entries
@@ -124,17 +138,7 @@ func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 							tokenizer.Next()
 							tagName, hasAttr = tokenizer.TagName()
 							if string(tagName) == "a" && hasAttr {
-								for {
-									attrKey, attrValue, moreAttr := tokenizer.TagAttr()
-									if string(attrKey) == "href" && attrValue != nil {
-										content.continueReadingUrl = string(attrValue)
-										previousTokenValue = ""
-										break
-									}
-									if !moreAttr {
-										break
-									}
-								}
+								setContinueReading(tokenizer, &content, &previousTokenValue)
 							}
 							if content.continueReadingUrl != "" {
 								break
