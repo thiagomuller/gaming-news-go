@@ -71,6 +71,20 @@ func mountContentForPolygonNews(content Content) string {
 	return content.textContent + "\n" + "Image source: " + content.imageSource + "\n" + "Read more: " + content.continueReadingUrl
 }
 
+func setImgSrc(tagName []byte, hasAttr bool, tokenizer *html.Tokenizer, content *Content) {
+	if string(tagName) == "img" && hasAttr {
+		for {
+			attrKey, attrValue, moreAttr := tokenizer.TagAttr()
+			if string(attrKey) == "src" && attrValue != nil {
+				content.imageSource = string(attrValue)
+			}
+			if !moreAttr {
+				break
+			}
+		}
+	}
+}
+
 func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 	items := rssFeed.Channel.Items
 	entries := rssFeed.Entries
@@ -96,17 +110,7 @@ func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 					}
 
 					tagName, hasAttr := tokenizer.TagName()
-					if string(tagName) == "img" && hasAttr {
-						for {
-							attrKey, attrValue, moreAttr := tokenizer.TagAttr()
-							if string(attrKey) == "src" && attrValue != nil {
-								content.imageSource = string(attrValue)
-							}
-							if !moreAttr {
-								break
-							}
-						}
-					}
+					setImgSrc(tagName, hasAttr, tokenizer, &content)
 
 					if string(tagName) == "p" && previousTokenValue != "p" {
 						tokenizer.Next()
