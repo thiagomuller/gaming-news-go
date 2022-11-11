@@ -5,8 +5,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 )
+
+type Content struct {
+	imageSource        string
+	textContent        string
+	continueReadingUrl string
+}
 
 type Item struct {
 	Title           string `xml:"title"`
@@ -58,6 +67,10 @@ func mountGeneralNews(title string, url string, description string) GeneralNews 
 	}
 }
 
+func mountContentForPolygonNews(content Content) string {
+	return content.textContent + "\n" + "Image source: " + content.imageSource + "\n" + "Read more: " + content.continueReadingUrl
+}
+
 func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 	items := rssFeed.Channel.Items
 	entries := rssFeed.Entries
@@ -70,7 +83,64 @@ func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 	} else {
 		for _, news := range entries {
 			if !contains(allNews, news.Title) {
-				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, news.Content))
+				var content Content
+				previousTokenValue := ""
+				reader := strings.NewReader(news.Content)
+				tokenizer := html.NewTokenizer(reader)
+
+				for {
+					tt := tokenizer.Next()
+
+					if tt == html.ErrorToken {
+						break
+					}
+
+					tagName, hasAttr := tokenizer.TagName()
+					if string(tagName) == "img" && hasAttr {
+						for {
+							attrKey, attrValue, moreAttr := tokenizer.TagAttr()
+							if string(attrKey) == "src" && attrValue != nil {
+								content.imageSource = string(attrValue)
+							}
+							if !moreAttr {
+								break
+							}
+						}
+					}
+
+					if string(tagName) == "p" && previousTokenValue != "p" {
+						tokenizer.Next()
+						content.textContent += tokenizer.Token().Data
+						previousTokenValue = "p"
+						continue
+					}
+
+					if string(tagName) == "p" && previousTokenValue == "p" {
+						for {
+							tokenizer.Next()
+							tagName, hasAttr = tokenizer.TagName()
+							if string(tagName) == "a" && hasAttr {
+								for {
+									attrKey, attrValue, moreAttr := tokenizer.TagAttr()
+									if string(attrKey) == "href" && attrValue != nil {
+										content.continueReadingUrl = string(attrValue)
+										previousTokenValue = ""
+										break
+									}
+									if !moreAttr {
+										break
+									}
+								}
+							}
+							if content.continueReadingUrl != "" {
+								break
+							}
+						}
+					}
+
+				}
+
+				allNews = append(allNews, mountGeneralNews(news.Title, news.Url, mountContentForPolygonNews(content)))
 			}
 		}
 	}
@@ -105,10 +175,6 @@ func main() {
 	polygonRespBody := makeHttpGetRequest("https://www.polygon.com/rss/index.xml")
 	xml.Unmarshal(polygonRespBody, &rss)
 	allNews = fillResultingNews(rss, allNews)
-
-	for i := 0; i < len(allNews); i++ {
-		fmt.Println(allNews[i].Title)
-	}
 
 	elapsed := time.Since(start)
 	fmt.Println("News quantity: ", len(allNews))
