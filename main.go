@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -160,7 +161,7 @@ func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 	return allNews
 }
 
-func fetchBytesForUnmarshalling(rssFeed string, respChannel chan<- []byte) {
+func fetchBytesForUnmarshalling(rssFeed string, respChannel chan<- []byte, wg *sync.WaitGroup) {
 	response, err := http.Get(rssFeed)
 	if err != nil {
 		fmt.Printf("%s", err.Error())
@@ -170,17 +171,27 @@ func fetchBytesForUnmarshalling(rssFeed string, respChannel chan<- []byte) {
 		fmt.Printf("%s", err.Error())
 	}
 	respChannel <- responseBody
+	wg.Done()
 }
 
 func main() {
 	start := time.Now()
 	var allNews []GeneralNews
 	var rss Rss
+	feedsToFetch := [3]string{"https://www.gamespot.com/feeds/game-news", "http://feeds.feedburner.com/ign/all", "https://www.polygon.com/rss/index.xml"}
 	respChannel := make(chan []byte, 3)
 
-	go fetchBytesForUnmarshalling("https://www.gamespot.com/feeds/game-news", respChannel)
-	go fetchBytesForUnmarshalling("http://feeds.feedburner.com/ign/all", respChannel)
-	go fetchBytesForUnmarshalling("https://www.polygon.com/rss/index.xml", respChannel)
+	wg := sync.WaitGroup{}
+
+	for feed := range feedsToFetch {
+		wg.Add(1)
+		go fetchBytesForUnmarshalling(feedsToFetch[feed], respChannel, &wg)
+	}
+
+	go func() {
+		wg.Wait()
+		close(respChannel)
+	}()
 
 	for resp := range respChannel {
 		xml.Unmarshal(resp, &rss)
