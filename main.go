@@ -50,6 +50,11 @@ type GeneralNews struct {
 	Description string
 }
 
+type feedResponse struct {
+	feedUrl  string
+	response []byte
+}
+
 func contains(allNews []GeneralNews, value string) bool {
 	for _, news := range allNews {
 		if news.Title == value {
@@ -155,7 +160,7 @@ func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 	return allNews
 }
 
-func makeHttpGetRequest(rssFeed string) []byte {
+func fetchBytesForUnmarshalling(rssFeed string, respChannel chan<- []byte) {
 	response, err := http.Get(rssFeed)
 	if err != nil {
 		fmt.Printf("%s", err.Error())
@@ -164,25 +169,23 @@ func makeHttpGetRequest(rssFeed string) []byte {
 	if err != nil {
 		fmt.Printf("%s", err.Error())
 	}
-	return responseBody
+	respChannel <- responseBody
 }
 
 func main() {
 	start := time.Now()
 	var allNews []GeneralNews
-
-	gamespotRespBody := makeHttpGetRequest("https://www.gamespot.com/feeds/game-news")
 	var rss Rss
-	xml.Unmarshal(gamespotRespBody, &rss)
-	allNews = fillResultingNews(rss, allNews)
+	respChannel := make(chan []byte, 3)
 
-	ignRespBody := makeHttpGetRequest("http://feeds.feedburner.com/ign/all")
-	xml.Unmarshal(ignRespBody, &rss)
-	allNews = fillResultingNews(rss, allNews)
+	go fetchBytesForUnmarshalling("https://www.gamespot.com/feeds/game-news", respChannel)
+	go fetchBytesForUnmarshalling("http://feeds.feedburner.com/ign/all", respChannel)
+	go fetchBytesForUnmarshalling("https://www.polygon.com/rss/index.xml", respChannel)
 
-	polygonRespBody := makeHttpGetRequest("https://www.polygon.com/rss/index.xml")
-	xml.Unmarshal(polygonRespBody, &rss)
-	allNews = fillResultingNews(rss, allNews)
+	for resp := range respChannel {
+		xml.Unmarshal(resp, &rss)
+		allNews = fillResultingNews(rss, allNews)
+	}
 
 	elapsed := time.Since(start)
 	fmt.Println("News quantity: ", len(allNews))
