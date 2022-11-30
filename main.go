@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -50,6 +51,11 @@ type GeneralNews struct {
 	Description string
 }
 
+type feedResponse struct {
+	feedUrl  string
+	response []byte
+}
+
 func contains(allNews []GeneralNews, value string) bool {
 	for _, news := range allNews {
 		if news.Title == value {
@@ -69,6 +75,34 @@ func mountGeneralNews(title string, url string, description string) GeneralNews 
 
 func mountContentForPolygonNews(content Content) string {
 	return content.textContent + "\n" + "Image source: " + content.imageSource + "\n" + "Read more: " + content.continueReadingUrl
+}
+
+func setImgSrc(tagName []byte, hasAttr bool, tokenizer *html.Tokenizer, content *Content) {
+	if string(tagName) == "img" && hasAttr {
+		for {
+			attrKey, attrValue, moreAttr := tokenizer.TagAttr()
+			if string(attrKey) == "src" && attrValue != nil {
+				content.imageSource = string(attrValue)
+			}
+			if !moreAttr {
+				break
+			}
+		}
+	}
+}
+
+func setContinueReading(tokenizer *html.Tokenizer, content *Content, previousTokenValue *string) {
+	for {
+		attrKey, attrValue, moreAttr := tokenizer.TagAttr()
+		if string(attrKey) == "href" && attrValue != nil {
+			content.continueReadingUrl = string(attrValue)
+			*previousTokenValue = ""
+			break
+		}
+		if !moreAttr {
+			break
+		}
+	}
 }
 
 func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
@@ -96,17 +130,7 @@ func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 					}
 
 					tagName, hasAttr := tokenizer.TagName()
-					if string(tagName) == "img" && hasAttr {
-						for {
-							attrKey, attrValue, moreAttr := tokenizer.TagAttr()
-							if string(attrKey) == "src" && attrValue != nil {
-								content.imageSource = string(attrValue)
-							}
-							if !moreAttr {
-								break
-							}
-						}
-					}
+					setImgSrc(tagName, hasAttr, tokenizer, &content)
 
 					if string(tagName) == "p" && previousTokenValue != "p" {
 						tokenizer.Next()
@@ -120,17 +144,7 @@ func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 							tokenizer.Next()
 							tagName, hasAttr = tokenizer.TagName()
 							if string(tagName) == "a" && hasAttr {
-								for {
-									attrKey, attrValue, moreAttr := tokenizer.TagAttr()
-									if string(attrKey) == "href" && attrValue != nil {
-										content.continueReadingUrl = string(attrValue)
-										previousTokenValue = ""
-										break
-									}
-									if !moreAttr {
-										break
-									}
-								}
+								setContinueReading(tokenizer, &content, &previousTokenValue)
 							}
 							if content.continueReadingUrl != "" {
 								break
@@ -147,7 +161,7 @@ func fillResultingNews(rssFeed Rss, allNews []GeneralNews) []GeneralNews {
 	return allNews
 }
 
-func makeHttpGetRequest(rssFeed string) []byte {
+func fetchBytesForUnmarshalling(rssFeed string, respChannel chan<- []byte, wg *sync.WaitGroup) {
 	response, err := http.Get(rssFeed)
 	if err != nil {
 		fmt.Printf("%s", err.Error())
@@ -156,25 +170,33 @@ func makeHttpGetRequest(rssFeed string) []byte {
 	if err != nil {
 		fmt.Printf("%s", err.Error())
 	}
-	return responseBody
+	respChannel <- responseBody
+	wg.Done()
 }
 
 func main() {
 	start := time.Now()
 	var allNews []GeneralNews
-
-	gamespotRespBody := makeHttpGetRequest("https://www.gamespot.com/feeds/game-news")
 	var rss Rss
-	xml.Unmarshal(gamespotRespBody, &rss)
-	allNews = fillResultingNews(rss, allNews)
+	feedsToFetch := [3]string{"https://www.gamespot.com/feeds/game-news", "http://feeds.feedburner.com/ign/all", "https://www.polygon.com/rss/index.xml"}
+	respChannel := make(chan []byte, 3)
 
-	ignRespBody := makeHttpGetRequest("http://feeds.feedburner.com/ign/all")
-	xml.Unmarshal(ignRespBody, &rss)
-	allNews = fillResultingNews(rss, allNews)
+	wg := sync.WaitGroup{}
 
-	polygonRespBody := makeHttpGetRequest("https://www.polygon.com/rss/index.xml")
-	xml.Unmarshal(polygonRespBody, &rss)
-	allNews = fillResultingNews(rss, allNews)
+	for feed := range feedsToFetch {
+		wg.Add(1)
+		go fetchBytesForUnmarshalling(feedsToFetch[feed], respChannel, &wg)
+	}
+
+	go func() {
+		wg.Wait()
+		close(respChannel)
+	}()
+
+	for resp := range respChannel {
+		xml.Unmarshal(resp, &rss)
+		allNews = fillResultingNews(rss, allNews)
+	}
 
 	elapsed := time.Since(start)
 	fmt.Println("News quantity: ", len(allNews))
